@@ -1,0 +1,11 @@
+{
+  "$schema": "https://moonlight-mod.github.io/manifest.schema.json",
+  "id": "tigerjetSwitchboardClient",
+  "version": "1.0.0",
+  "apiLevel": 2,
+  "meta": {
+    "name": "TigerJet Switchboard Client",
+    "tagline": "A client for tigerjet-switchboard that allows for making outgoing calls and ringing on incoming calls.",
+    "authors": ["Jaren"]
+  }
+}
