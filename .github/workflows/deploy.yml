@@ -34,7 +34,7 @@ jobs:
         run: pnpm run build
       - name: Pack extensions
         env:
-          REPO_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
+          REPO_URL: https://tigerjet-switchboard-client-moonlight.jaren.wtf
         run: pnpm run repo
 
       - name: Setup GitHub Pages
