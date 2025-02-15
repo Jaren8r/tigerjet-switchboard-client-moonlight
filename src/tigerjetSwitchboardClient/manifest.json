@@ -7,5 +7,10 @@
     "name": "TigerJet Switchboard Client",
     "tagline": "A client for tigerjet-switchboard that allows for making outgoing calls and ringing on incoming calls.",
     "authors": ["Jaren"]
+  },
+  "settings": {
+    "secret": {
+      "type": "string"
+    }
   }
 }

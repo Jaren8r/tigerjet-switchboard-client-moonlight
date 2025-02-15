@@ -15,6 +15,8 @@ import {
   ring
 } from "@moonlight-mod/wp/tigerjetSwitchboardClient_discord";
 
+const logger = moonlight.getLogger("tigerjetSwitchboardClient/entrypoint");
+
 const ringing = new Set();
 let ws: WebSocket;
 let dialing = false;
@@ -22,30 +24,59 @@ let dialing = false;
 let lastInputDeviceId = "default";
 let lastOutputDeviceId = "default";
 
-function getPhoneInputDeviceId() {
-  return Object.values(getInputDevices()).find((d) => d.name.includes("Internet Phone"))?.id ?? "default";
+interface Device {
+  serial: string;
+  input: string;
+  output: string;
 }
 
-function getPhoneOutputDeviceId() {
-  return Object.values(getOutputDevices()).find((d) => d.name.includes("Internet Phone"))?.id ?? "default";
+function getPhoneAudioDeviceId(type: "input" | "output", device: Device) {
+  const devices = type === "input" ? getInputDevices() : getOutputDevices();
+  if (device[type] in devices) {
+    return device[type];
+  }
+
+  for (const id in devices) {
+    if (devices[id].name.includes(device.serial)) {
+      return id;
+    }
+  }
+
+  for (const id in devices) {
+    if (devices[id].name.includes("Internet Phone")) {
+      logger.warn(
+        `${type[0].toLowerCase()}${type.substring(1)} device was not able to be found by id/serial. Multiple devices will work incorrectly.`,
+        devices[id]
+      );
+      return id;
+    }
+  }
+
+  logger.error(`${type[0].toLowerCase()}${type.substring(1)} device could not be found`);
+
+  return "default";
 }
 
 function connect() {
   ws = new WebSocket(
     `ws://127.0.0.1:5840/ws?${new URLSearchParams({
       client: "discord",
-      secret: moonlight.getConfigOption<string>("tigerjetSwitchboardClient", "secret")!
+      secret: moonlight.getConfigOption<string>("tigerjetSwitchboardClient", "secret") ?? ""
     }).toString()}`
   );
+  ws.addEventListener("open", () => {
+    ringing.clear();
+  });
   ws.addEventListener("close", connect);
   ws.addEventListener("message", async (e) => {
     const [typ, data] = JSON.parse(e.data);
     if (typ === "answer") {
       lastInputDeviceId = getInputDeviceId();
       lastOutputDeviceId = getOutputDeviceId();
-      setInputDevice(getPhoneInputDeviceId());
-      setOutputDevice(getPhoneOutputDeviceId());
-      selectVoiceChannel(data);
+
+      setInputDevice(getPhoneAudioDeviceId("input", data.device));
+      setOutputDevice(getPhoneAudioDeviceId("output", data.device));
+      selectVoiceChannel(data.id);
     }
 
     if (typ === "end") {
@@ -59,14 +90,14 @@ function connect() {
     if (typ === "call") {
       lastInputDeviceId = getInputDeviceId();
       lastOutputDeviceId = getOutputDeviceId();
-      setInputDevice(getPhoneInputDeviceId());
-      setOutputDevice(getPhoneOutputDeviceId());
-      selectVoiceChannel(data);
+      setInputDevice(getPhoneAudioDeviceId("input", data.device));
+      setOutputDevice(getPhoneAudioDeviceId("output", data.device));
+      selectVoiceChannel(data.number);
 
-      const channel = getChannel(data);
+      const channel = getChannel(data.number);
 
       if (channel.type === 1) {
-        ring(data, channel.recipients);
+        ring(data.number, channel.recipients);
       }
     }
   });
@@ -75,7 +106,7 @@ function connect() {
 function callUpdate(call: any) {
   const channel = getChannel(call.channelId);
   if (call.ringing.includes(getCurrentUser().id)) {
-    if (!ringing.has(call.channelId)) {
+    if (ws && ws.readyState === WebSocket.OPEN && !ringing.has(call.channelId)) {
       let callerId;
       if (channel.recipients.length > 1) {
         callerId = {
@@ -102,7 +133,7 @@ function callUpdate(call: any) {
       ringing.add(channel.id);
     }
   } else {
-    if (ringing.delete(call.channelId)) {
+    if (ws && ws.readyState === WebSocket.OPEN && ringing.delete(call.channelId)) {
       ws.send(JSON.stringify(["stopRinging", call.channelId]));
     }
   }
@@ -111,8 +142,10 @@ function callUpdate(call: any) {
   if (currentChannelId === channel.id || currentChannelId === null) {
     if (call.ringing[0] === channel.recipients[0] && !dialing && currentChannelId !== null) {
       dialing = true;
-      ws.send(JSON.stringify(["dialing", true]));
-    } else if (dialing) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(["dialing", true]));
+      }
+    } else if (dialing && ws && ws.readyState === WebSocket.OPEN) {
       dialing = false;
       ws.send(JSON.stringify(["dialing", false]));
     }
@@ -120,11 +153,11 @@ function callUpdate(call: any) {
 }
 
 function callDelete(call: any) {
-  if (ringing.delete(call.channelId)) {
+  if (ringing.delete(call.channelId) && ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(["stopRinging", call.channelId]));
   }
 
-  if (dialing && getVoiceChannelId() === null) {
+  if (dialing && getVoiceChannelId() === null && ws && ws.readyState === WebSocket.OPEN) {
     dialing = false;
     ws.send(JSON.stringify(["dialing", false]));
   }
